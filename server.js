@@ -71,7 +71,20 @@ app.post('/messages', requireApiKey, (req, res) => {
 });
 
 // Streamable HTTP endpoint for ServiceNow AI Agent Studio
-app.post('/mcp', requireApiKey, (req, res) => {
+app.post('/mcp', (req, res) => {
+  // Log all incoming request details
+  console.log('[REQUEST] Headers:', JSON.stringify(req.headers));
+  console.log('[REQUEST] Body:', JSON.stringify(req.body));
+  console.log('[REQUEST] Query:', JSON.stringify(req.query));
+
+  // Check API key
+  const key = req.headers['x-api-key'] || req.query.api_key;
+  if (!key || key !== API_KEY) {
+    console.log('[AUTH] Failed - key received:', key);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  console.log('[AUTH] Success');
+
   const mcpProcess = spawn('node', ['dist/index.js'], {
     stdio: ['pipe', 'pipe', 'pipe']
   });
@@ -85,13 +98,14 @@ app.post('/mcp', requireApiKey, (req, res) => {
   mcpProcess.stderr.on('data', (d) => console.error('[MCP]', d.toString()));
 
   mcpProcess.on('close', () => {
+    console.log('[RESPONSE] Raw data:', responseData);
     try {
-      // Find the last valid JSON line
       const lines = responseData.trim().split('\n').filter(l => l.trim());
       const lastLine = lines[lines.length - 1];
       const parsed = JSON.parse(lastLine);
       res.json(parsed);
     } catch (e) {
+      console.log('[RESPONSE] Parse error:', e.message);
       res.status(500).json({ error: 'Failed to parse MCP response' });
     }
   });
