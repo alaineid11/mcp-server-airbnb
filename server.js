@@ -10,7 +10,7 @@ const API_KEY = process.env.MCP_API_KEY || 'change-me-in-production';
 const PORT = process.env.PORT || 3000;
 
 function requireApiKey(req, res, next) {
-  const key = req.headers['x-api-key'] || req.query.api_key;
+  const key = req.headers['x-api-key'] || req.headers['authorization'] || req.query.api_key;
   if (!key || key !== API_KEY) {
     return res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
   }
@@ -71,18 +71,8 @@ app.post('/messages', requireApiKey, (req, res) => {
 });
 
 // Streamable HTTP endpoint for ServiceNow AI Agent Studio
-app.post('/mcp', (req, res) => {
-  // Log all incoming request details
-  console.log('[REQUEST] Headers:', JSON.stringify(req.headers));
-  console.log('[REQUEST] Body:', JSON.stringify(req.body));
-  console.log('[REQUEST] Query:', JSON.stringify(req.query));
-
-  // Check API key
-  const key = req.headers['x-api-key'] || req.query.api_key;
-  if (!key || key !== API_KEY) {
-    console.log('[AUTH] Failed - key received:', key);
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+app.post('/mcp', requireApiKey, (req, res) => {
+  console.log('[REQUEST] Method:', req.body?.method);
   console.log('[AUTH] Success');
 
   const mcpProcess = spawn('node', ['dist/index.js'], {
