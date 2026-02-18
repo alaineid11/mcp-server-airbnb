@@ -78,6 +78,25 @@ function patchResponse(result) {
   return result;
 }
 
+// Helper: fix large integer IDs that lose precision in JavaScript
+function fixLargeIds(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(fixLargeIds);
+  }
+  if (obj && typeof obj === 'object') {
+    const fixed = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === 'id' && typeof value === 'number') {
+        fixed[key] = String(value);
+      } else {
+        fixed[key] = fixLargeIds(value);
+      }
+    }
+    return fixed;
+  }
+  return obj;
+}
+
 // Helper: run a sequence of messages and return response for a target id
 function runMcpSequence(messages, targetId) {
   return new Promise((resolve, reject) => {
@@ -95,7 +114,7 @@ function runMcpSequence(messages, targetId) {
         const parsed = JSON.parse(line);
         if (parsed.id === targetId) {
           mcpProcess.kill();
-          resolve(patchResponse(parsed));
+          resolve(fixLargeIds(patchResponse(parsed)));
         }
       } catch {}
     });
@@ -107,11 +126,11 @@ function runMcpSequence(messages, targetId) {
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
           const parsed = JSON.parse(lines[i]);
-          if (parsed.id === targetId) return resolve(patchResponse(parsed));
+          if (parsed.id === targetId) return resolve(fixLargeIds(patchResponse(parsed)));
         } catch {}
       }
       try {
-        resolve(patchResponse(JSON.parse(lines[lines.length - 1])));
+        resolve(fixLargeIds(patchResponse(JSON.parse(lines[lines.length - 1]))));
       } catch {
         reject(new Error('No valid response found'));
       }
