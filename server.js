@@ -70,6 +70,37 @@ app.post('/messages', requireApiKey, (req, res) => {
   res.status(202).json({ status: 'accepted' });
 });
 
+// Streamable HTTP endpoint for ServiceNow AI Agent Studio
+app.post('/mcp', requireApiKey, (req, res) => {
+  const mcpProcess = spawn('node', ['dist/index.js'], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  let responseData = '';
+
+  mcpProcess.stdout.on('data', (data) => {
+    responseData += data.toString();
+  });
+
+  mcpProcess.stderr.on('data', (d) => console.error('[MCP]', d.toString()));
+
+  mcpProcess.on('close', () => {
+    try {
+      // Find the last valid JSON line
+      const lines = responseData.trim().split('\n').filter(l => l.trim());
+      const lastLine = lines[lines.length - 1];
+      const parsed = JSON.parse(lastLine);
+      res.json(parsed);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to parse MCP response' });
+    }
+  });
+
+  const message = JSON.stringify(req.body) + '\n';
+  mcpProcess.stdin.write(message);
+  mcpProcess.stdin.end();
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`MCP HTTP server running on port ${PORT}`);
 });
