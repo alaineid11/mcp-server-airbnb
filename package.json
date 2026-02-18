@@ -29,6 +29,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
     "cheerio": "^1.0.0",
+    "express": "^5.2.1",
     "node-fetch": "^3.3.2",
     "robots-parser": "^3.0.1"
   },
