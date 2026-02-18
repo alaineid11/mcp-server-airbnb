@@ -72,7 +72,10 @@ app.post('/messages', requireApiKey, (req, res) => {
 
 // Helper: parse JSON while preserving large integers as strings
 function safeJsonParse(text) {
-  const fixed = text.replace(/"id"\s*:\s*(\d{15,})/g, '"id":"$1"');
+  // Fix large integers at the outer level
+  let fixed = text.replace(/"id"\s*:\s*(\d{15,})/g, '"id":"$1"');
+  // Fix large integers inside embedded escaped JSON strings
+  fixed = fixed.replace(/\\"id\\":\s*(\d{15,})/g, '\\"id\\":\\"$1\\"');
   return JSON.parse(fixed);
 }
 
