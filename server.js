@@ -73,7 +73,8 @@ app.post('/messages', requireApiKey, (req, res) => {
 // Streamable HTTP endpoint for ServiceNow AI Agent Studio
 app.post('/mcp', requireApiKey, (req, res) => {
   console.log('[REQUEST] Method:', req.body?.method);
-  console.log('[AUTH] Success');
+
+  const targetId = req.body?.id;
 
   const mcpProcess = spawn('node', ['dist/index.js'], {
     stdio: ['pipe', 'pipe', 'pipe']
@@ -91,8 +92,17 @@ app.post('/mcp', requireApiKey, (req, res) => {
     console.log('[RESPONSE] Raw data:', responseData);
     try {
       const lines = responseData.trim().split('\n').filter(l => l.trim());
-      const lastLine = lines[lines.length - 1];
-      const parsed = JSON.parse(lastLine);
+      // Find the response matching our target request id
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const parsed = JSON.parse(lines[i]);
+          if (parsed.id === targetId) {
+            return res.json(parsed);
+          }
+        } catch {}
+      }
+      // Fallback to last line
+      const parsed = JSON.parse(lines[lines.length - 1]);
       res.json(parsed);
     } catch (e) {
       console.log('[RESPONSE] Parse error:', e.message);
@@ -100,8 +110,22 @@ app.post('/mcp', requireApiKey, (req, res) => {
     }
   });
 
-  const message = JSON.stringify(req.body) + '\n';
-  mcpProcess.stdin.write(message);
+  // Always send initialize first, then the actual request
+  const initMessage = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 'init-' + targetId,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'proxy', version: '1.0' }
+    }
+  }) + '\n';
+
+  const actualMessage = JSON.stringify(req.body) + '\n';
+
+  mcpProcess.stdin.write(initMessage);
+  mcpProcess.stdin.write(actualMessage);
   mcpProcess.stdin.end();
 });
 
