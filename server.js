@@ -29,7 +29,7 @@ app.get('/sse', requireApiKey, (req, res) => {
 
   const sessionId = crypto.randomUUID();
 
-  const mcpProcess = spawn('node', ['dist/index.js'], {
+  const mcpProcess = spawn('node', ['dist/index.js', '--ignore-robots-txt'], {
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
@@ -81,7 +81,7 @@ function patchResponse(result) {
 // Helper: run a sequence of messages and return response for a target id
 function runMcpSequence(messages, targetId) {
   return new Promise((resolve, reject) => {
-    const mcpProcess = spawn('node', ['dist/index.js'], {
+    const mcpProcess = spawn('node', ['dist/index.js', '--ignore-robots-txt'], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
