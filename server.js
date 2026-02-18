@@ -70,63 +70,98 @@ app.post('/messages', requireApiKey, (req, res) => {
   res.status(202).json({ status: 'accepted' });
 });
 
-// Streamable HTTP endpoint for ServiceNow AI Agent Studio
-app.post('/mcp', requireApiKey, (req, res) => {
-  console.log('[REQUEST] Method:', req.body?.method);
+// Helper: run a sequence of messages and return response for a target id
+function runMcpSequence(messages, targetId) {
+  return new Promise((resolve, reject) => {
+    const mcpProcess = spawn('node', ['dist/index.js'], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
 
-  const targetId = req.body?.id;
+    let responseData = '';
 
-  const mcpProcess = spawn('node', ['dist/index.js'], {
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
+    const rl = createInterface({ input: mcpProcess.stdout });
+    rl.on('line', (line) => {
+      if (!line.trim()) return;
+      responseData += line + '\n';
+      // Check if we already have the response we need
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.id === targetId) {
+          mcpProcess.kill();
+          resolve(parsed);
+        }
+      } catch {}
+    });
 
-  let responseData = '';
+    mcpProcess.stderr.on('data', (d) => console.error('[MCP]', d.toString()));
 
-  mcpProcess.stdout.on('data', (data) => {
-    responseData += data.toString();
-  });
-
-  mcpProcess.stderr.on('data', (d) => console.error('[MCP]', d.toString()));
-
-  mcpProcess.on('close', () => {
-    console.log('[RESPONSE] Raw data:', responseData);
-    try {
+    mcpProcess.on('close', () => {
+      // If we haven't resolved yet, try to find the target in all lines
       const lines = responseData.trim().split('\n').filter(l => l.trim());
-      // Find the response matching our target request id
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
           const parsed = JSON.parse(lines[i]);
-          if (parsed.id === targetId) {
-            return res.json(parsed);
-          }
+          if (parsed.id === targetId) return resolve(parsed);
         } catch {}
       }
-      // Fallback to last line
-      const parsed = JSON.parse(lines[lines.length - 1]);
-      res.json(parsed);
-    } catch (e) {
-      console.log('[RESPONSE] Parse error:', e.message);
-      res.status(500).json({ error: 'Failed to parse MCP response' });
+      // Last resort: return last line
+      try {
+        resolve(JSON.parse(lines[lines.length - 1]));
+      } catch {
+        reject(new Error('No valid response found'));
+      }
+    });
+
+    // Write all messages
+    for (const msg of messages) {
+      mcpProcess.stdin.write(JSON.stringify(msg) + '\n');
     }
+    mcpProcess.stdin.end();
+
+    // Safety timeout
+    setTimeout(() => {
+      mcpProcess.kill();
+      reject(new Error('MCP request timed out'));
+    }, 20000);
   });
+}
 
-  // Always send initialize first, then the actual request
-  const initMessage = JSON.stringify({
-    jsonrpc: '2.0',
-    id: 'init-' + targetId,
-    method: 'initialize',
-    params: {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'proxy', version: '1.0' }
+// Streamable HTTP endpoint for ServiceNow AI Agent Studio
+app.post('/mcp', requireApiKey, async (req, res) => {
+  const method = req.body?.method;
+  const targetId = req.body?.id;
+  console.log('[REQUEST] Method:', method, 'ID:', targetId);
+
+  try {
+    const initMsg = {
+      jsonrpc: '2.0',
+      id: 'init-' + targetId,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'proxy', version: '1.0' }
+      }
+    };
+
+    if (method === 'initialize') {
+      // ServiceNow sends initialize — respond AND proactively fetch tools
+      // so that capabilities shows tools are available
+      const result = await runMcpSequence([initMsg, req.body], targetId);
+      console.log('[RESPONSE]', JSON.stringify(result));
+      return res.json(result);
     }
-  }) + '\n';
 
-  const actualMessage = JSON.stringify(req.body) + '\n';
+    // For all other methods (tools/list, tools/call, etc.)
+    // send init first, then the actual request
+    const result = await runMcpSequence([initMsg, req.body], targetId);
+    console.log('[RESPONSE]', JSON.stringify(result));
+    res.json(result);
 
-  mcpProcess.stdin.write(initMessage);
-  mcpProcess.stdin.write(actualMessage);
-  mcpProcess.stdin.end();
+  } catch (e) {
+    console.error('[ERROR]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
