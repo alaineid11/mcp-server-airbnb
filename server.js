@@ -138,7 +138,7 @@ app.post('/mcp', requireApiKey, async (req, res) => {
       id: 'init-' + targetId,
       method: 'initialize',
       params: {
-        protocolVersion: '2024-11-05',
+        protocolVersion: '2025-06-18',
         capabilities: {},
         clientInfo: { name: 'proxy', version: '1.0' }
       }
