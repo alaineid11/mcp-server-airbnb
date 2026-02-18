@@ -70,6 +70,12 @@ app.post('/messages', requireApiKey, (req, res) => {
   res.status(202).json({ status: 'accepted' });
 });
 
+// Helper: parse JSON while preserving large integers as strings
+function safeJsonParse(text) {
+  const fixed = text.replace(/"id"\s*:\s*(\d{15,})/g, '"id":"$1"');
+  return JSON.parse(fixed);
+}
+
 // Helper: patch protocol version in any MCP response
 function patchResponse(result) {
   if (result?.result?.protocolVersion) {
@@ -111,7 +117,7 @@ function runMcpSequence(messages, targetId) {
       if (!line.trim()) return;
       responseData += line + '\n';
       try {
-        const parsed = JSON.parse(line);
+        const parsed = safeJsonParse(line);
         if (parsed.id === targetId) {
           mcpProcess.kill();
           resolve(fixLargeIds(patchResponse(parsed)));
@@ -125,12 +131,12 @@ function runMcpSequence(messages, targetId) {
       const lines = responseData.trim().split('\n').filter(l => l.trim());
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
-          const parsed = JSON.parse(lines[i]);
+          const parsed = safeJsonParse(lines[i]);
           if (parsed.id === targetId) return resolve(fixLargeIds(patchResponse(parsed)));
         } catch {}
       }
       try {
-        resolve(fixLargeIds(patchResponse(JSON.parse(lines[lines.length - 1]))));
+        resolve(fixLargeIds(patchResponse(safeJsonParse(lines[lines.length - 1]))));
       } catch {
         reject(new Error('No valid response found'));
       }
