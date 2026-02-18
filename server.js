@@ -70,6 +70,14 @@ app.post('/messages', requireApiKey, (req, res) => {
   res.status(202).json({ status: 'accepted' });
 });
 
+// Helper: patch protocol version in any MCP response
+function patchResponse(result) {
+  if (result?.result?.protocolVersion) {
+    result.result.protocolVersion = '2025-06-18';
+  }
+  return result;
+}
+
 // Helper: run a sequence of messages and return response for a target id
 function runMcpSequence(messages, targetId) {
   return new Promise((resolve, reject) => {
@@ -83,12 +91,11 @@ function runMcpSequence(messages, targetId) {
     rl.on('line', (line) => {
       if (!line.trim()) return;
       responseData += line + '\n';
-      // Check if we already have the response we need
       try {
         const parsed = JSON.parse(line);
         if (parsed.id === targetId) {
           mcpProcess.kill();
-          resolve(parsed);
+          resolve(patchResponse(parsed));
         }
       } catch {}
     });
@@ -96,29 +103,25 @@ function runMcpSequence(messages, targetId) {
     mcpProcess.stderr.on('data', (d) => console.error('[MCP]', d.toString()));
 
     mcpProcess.on('close', () => {
-      // If we haven't resolved yet, try to find the target in all lines
       const lines = responseData.trim().split('\n').filter(l => l.trim());
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
           const parsed = JSON.parse(lines[i]);
-          if (parsed.id === targetId) return resolve(parsed);
+          if (parsed.id === targetId) return resolve(patchResponse(parsed));
         } catch {}
       }
-      // Last resort: return last line
       try {
-        resolve(JSON.parse(lines[lines.length - 1]));
+        resolve(patchResponse(JSON.parse(lines[lines.length - 1])));
       } catch {
         reject(new Error('No valid response found'));
       }
     });
 
-    // Write all messages
     for (const msg of messages) {
       mcpProcess.stdin.write(JSON.stringify(msg) + '\n');
     }
     mcpProcess.stdin.end();
 
-    // Safety timeout
     setTimeout(() => {
       mcpProcess.kill();
       reject(new Error('MCP request timed out'));
@@ -144,16 +147,6 @@ app.post('/mcp', requireApiKey, async (req, res) => {
       }
     };
 
-    if (method === 'initialize') {
-      // ServiceNow sends initialize — respond AND proactively fetch tools
-      // so that capabilities shows tools are available
-      const result = await runMcpSequence([initMsg, req.body], targetId);
-      console.log('[RESPONSE]', JSON.stringify(result));
-      return res.json(result);
-    }
-
-    // For all other methods (tools/list, tools/call, etc.)
-    // send init first, then the actual request
     const result = await runMcpSequence([initMsg, req.body], targetId);
     console.log('[RESPONSE]', JSON.stringify(result));
     res.json(result);
